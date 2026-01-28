@@ -9,7 +9,7 @@ void model_destroy(void*);
 
 void* language_session_create(void*);
 void session_respond_to(void*, char*, void(^)(char*, char*));
-void session_respond_to_f(void*, char*, uintptr_t, void(*)(char*, char*, void*));
+void session_respond_to_f(void*, char*, void*, void(*)(char*, char*, void*));
 void session_destroy(void*);
 
 #endif

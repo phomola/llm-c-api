@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime/cgo"
 	"unsafe"
 )
 
@@ -13,7 +14,7 @@ import (
 #include <stdlib.h>
 #include "../llm.h"
 
-void sessionCallback(char*, char*, uintptr_t);
+void sessionCallback(char*, char*, void*);
 */
 import "C"
 
@@ -44,28 +45,30 @@ func (s *Session) Close() {
 type sessionResponse struct {
 	response string
 	err      error
-	ch       chan struct{}
+	ch       cgo.Handle
 }
 
 //export sessionCallback
-func sessionCallback(r, e *C.char, ctx uintptr) {
+func sessionCallback(r, e *C.char, ctx unsafe.Pointer) {
 	defer C.free(unsafe.Pointer(r))
 	defer C.free(unsafe.Pointer(e))
-	resp := (*sessionResponse)(unsafe.Pointer(ctx))
+	resp := (*sessionResponse)(ctx)
 	if r != nil {
 		resp.response = C.GoString(r)
 	} else {
 		resp.err = errors.New(C.GoString(e))
 	}
-	resp.ch <- struct{}{}
+	resp.ch.Value().(chan struct{}) <- struct{}{}
+	resp.ch.Delete()
 }
 
 func (s *Session) RespondTo(prompt string) (string, error) {
 	cPrompt := C.CString(prompt)
 	defer C.free(unsafe.Pointer(cPrompt))
-	r := sessionResponse{ch: make(chan struct{}, 1)}
-	C.session_respond_to_f(s.ptr, cPrompt, C.uintptr_t(uintptr(unsafe.Pointer(&r))), (*[0]byte)(C.sessionCallback))
-	<-r.ch
+	ch := make(chan struct{}, 1)
+	r := sessionResponse{ch: cgo.NewHandle(ch)}
+	C.session_respond_to_f(s.ptr, cPrompt, unsafe.Pointer(&r), (*[0]byte)(C.sessionCallback))
+	<-ch
 	return r.response, r.err
 }
 
